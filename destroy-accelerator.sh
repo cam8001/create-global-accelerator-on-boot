@@ -5,16 +5,17 @@ set -e
 
 # Use appropriate directories based on user privileges
 if [[ $EUID -eq 0 ]]; then
-    SCRIPT_DIR="/var/lib/aws-global-accelerator-script"
+    SCRIPT_OUTPUT_DIR="/var/lib/aws-global-accelerator-script"
 else
-    SCRIPT_DIR="$HOME/.aws-global-accelerator-script"
+    SCRIPT_OUTPUT_DIR="$HOME/.aws-global-accelerator-script"
 fi
 
-LOG_FILE="$SCRIPT_DIR/accelerator.log"
+LOG_FILE="$SCRIPT_OUTPUT_DIR/accelerator.log"
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 
 # Logging function
 log() {
+    mkdir -p "$SCRIPT_OUTPUT_DIR"
     echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE" >&2
 }
 
@@ -43,12 +44,12 @@ retry_aws() {
 log "Starting Global Accelerator cleanup..."
 
 # Check if accelerator ARN exists
-if [[ ! -f "$SCRIPT_DIR/accelerator-arn" ]]; then
+if [[ ! -f "$SCRIPT_OUTPUT_DIR/accelerator-arn" ]]; then
     log "No accelerator ARN found, nothing to cleanup"
     exit 0
 fi
 
-ACCELERATOR_ARN=$(cat "$SCRIPT_DIR/accelerator-arn")
+ACCELERATOR_ARN=$(cat "$SCRIPT_OUTPUT_DIR/accelerator-arn")
 
 if [[ -z "$ACCELERATOR_ARN" ]]; then
     log "Empty accelerator ARN, nothing to cleanup"
@@ -58,8 +59,8 @@ fi
 log "Cleaning up accelerator: $ACCELERATOR_ARN"
 
 # Check if DNS record info exists
-if [[ -f "$SCRIPT_DIR/accelerator-dns-record" ]]; then
-    DNS_INFO=$(cat "$SCRIPT_DIR/accelerator-dns-record")
+if [[ -f "$SCRIPT_OUTPUT_DIR/accelerator-dns-record" ]]; then
+    DNS_INFO=$(cat "$SCRIPT_OUTPUT_DIR/accelerator-dns-record")
     HOSTED_ZONE_ID="${DNS_INFO%:*}"
     RECORD_NAME="${DNS_INFO#*:}"
     
@@ -126,7 +127,7 @@ else
 fi
 
 # Cleanup state files
-rm -f "$SCRIPT_DIR/accelerator-arn"
-rm -f "$SCRIPT_DIR/accelerator-dns-record"
+rm -f "$SCRIPT_OUTPUT_DIR/accelerator-arn"
+rm -f "$SCRIPT_OUTPUT_DIR/accelerator-dns-record"
 
 log "Global Accelerator cleanup completed"

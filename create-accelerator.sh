@@ -7,15 +7,16 @@ set -e
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 # Use appropriate directories based on user privileges
 if [[ $EUID -eq 0 ]]; then
-    SCRIPT_DIR="/var/lib/aws-global-accelerator-script"
+    SCRIPT_OUTPUT_DIR="/var/lib/aws-global-accelerator-script"
 else
-    SCRIPT_DIR="$HOME/.aws-global-accelerator-script"
+    SCRIPT_OUTPUT_DIR="$HOME/.aws-global-accelerator-script"
 fi
 
-LOG_FILE="$SCRIPT_DIR/accelerator.log"
+LOG_FILE="$SCRIPT_OUTPUT_DIR/accelerator.log"
 
 # Logging function
 log() {
+    mkdir -p "$SCRIPT_OUTPUT_DIR"
     echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE" >&2
 }
 
@@ -121,11 +122,11 @@ fi
 log "Created Global Accelerator: $ACCELERATOR_ARN"
 
 # Create script directory and description
-mkdir -p "$SCRIPT_DIR"
-echo "Files created by AWS Global Accelerator automation scripts for managing accelerator endpoints and Route 53 DNS records." > "$SCRIPT_DIR/README.txt"
+mkdir -p "$SCRIPT_OUTPUT_DIR"
+echo "Files created by AWS Global Accelerator automation scripts for managing accelerator endpoints and Route 53 DNS records." > "$SCRIPT_OUTPUT_DIR/README.txt"
 
 # Store accelerator ARN
-echo "$ACCELERATOR_ARN" > "$SCRIPT_DIR/accelerator-arn"
+echo "$ACCELERATOR_ARN" > "$SCRIPT_OUTPUT_DIR/accelerator-arn"
 
 # Wait for accelerator to be deployed
 log "Waiting for accelerator deployment..."
@@ -170,7 +171,7 @@ EOF
 CHANGE_ID=$(retry_aws "aws route53 change-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --change-batch '$CHANGE_BATCH' --query 'ChangeInfo.Id' --output text --no-cli-pager")
 
 # Store DNS record info
-echo "$HOSTED_ZONE_ID:$RECORD_NAME" > "$SCRIPT_DIR/accelerator-dns-record"
+echo "$HOSTED_ZONE_ID:$RECORD_NAME" > "$SCRIPT_OUTPUT_DIR/accelerator-dns-record"
 
 log "Route 53 change submitted: $CHANGE_ID"
 log "Global Accelerator setup completed successfully"
