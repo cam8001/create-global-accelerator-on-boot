@@ -33,8 +33,10 @@ This project provides automation scripts to:
 | Parameter | Environment Variable | Description |
 |-----------|---------------------|-------------|
 | `--hosted-zone-id` | `HOSTED_ZONE_ID` | Route 53 hosted zone ID |
-| `--region` | `AWS_REGION` | AWS region for Global Accelerator |
+| `--region` | `AWS_REGION` | AWS region where your EC2 instance is located (for endpoint group) |
 | `--record-name` | `RECORD_NAME` | DNS record name (subdomain) |
+
+**Note**: Global Accelerator API calls are made to the global endpoint (us-west-2), but the `--region` parameter specifies where your EC2 instance endpoints are located.
 
 ### Optional Parameters
 

@@ -104,17 +104,17 @@ EOF
 fi
 
 # Check if accelerator exists before attempting deletion
-if retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager >/dev/null 2>&1"; then
+if retry_aws "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager >/dev/null 2>&1"; then
     log "Disabling Global Accelerator..."
-    if retry_aws "aws globalaccelerator update-accelerator --accelerator-arn '$ACCELERATOR_ARN' --enabled false --no-cli-pager"; then
+    if retry_aws "aws globalaccelerator update-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --enabled false --no-cli-pager"; then
         log "Accelerator disabled successfully"
         
         # Wait for accelerator to be disabled
         log "Waiting for accelerator to be disabled..."
-        retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
+        retry_aws "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
         
         log "Deleting Global Accelerator..."
-        if retry_aws "aws globalaccelerator delete-accelerator --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager"; then
+        if retry_aws "aws globalaccelerator delete-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager"; then
             log "Global Accelerator deleted successfully"
         else
             log "ERROR: Failed to delete Global Accelerator"

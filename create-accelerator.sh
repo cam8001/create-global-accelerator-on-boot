@@ -112,7 +112,7 @@ log "Primary ENI: $ENI_ID"
 
 # Create Global Accelerator
 log "Creating Global Accelerator..."
-ACCELERATOR_ARN=$(retry_aws "aws globalaccelerator create-accelerator --name '$ACCELERATOR_NAME' --ip-address-type IPV4 --enabled --query 'Accelerator.AcceleratorArn' --output text --no-cli-pager")
+ACCELERATOR_ARN=$(retry_aws "aws globalaccelerator create-accelerator --region us-west-2 --name '$ACCELERATOR_NAME' --ip-address-type IPV4 --enabled --query 'Accelerator.AcceleratorArn' --output text --no-cli-pager")
 
 if [[ -z "$ACCELERATOR_ARN" ]]; then
     log "ERROR: Failed to create Global Accelerator"
@@ -130,18 +130,18 @@ echo "$ACCELERATOR_ARN" > "$SCRIPT_OUTPUT_DIR/accelerator-arn"
 
 # Wait for accelerator to be deployed
 log "Waiting for accelerator deployment..."
-retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
+retry_aws "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
 
 # Create listener
 log "Creating TCP listener on port 22..."
-LISTENER_ARN=$(retry_aws "aws globalaccelerator create-listener --accelerator-arn '$ACCELERATOR_ARN' --protocol TCP --port-ranges FromPort=22,ToPort=22 --query 'Listener.ListenerArn' --output text --no-cli-pager")
+LISTENER_ARN=$(retry_aws "aws globalaccelerator create-listener --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --protocol TCP --port-ranges FromPort=22,ToPort=22 --query 'Listener.ListenerArn' --output text --no-cli-pager")
 
 # Create endpoint group
 log "Creating endpoint group..."
-ENDPOINT_GROUP_ARN=$(retry_aws "aws globalaccelerator create-endpoint-group --listener-arn '$LISTENER_ARN' --endpoint-group-region '$AWS_REGION' --endpoints EndpointId='$ENI_ID',Weight=100 --health-check-port 80 --health-check-path '/health' --query 'EndpointGroup.EndpointGroupArn' --output text --no-cli-pager")
+ENDPOINT_GROUP_ARN=$(retry_aws "aws globalaccelerator create-endpoint-group --region us-west-2 --listener-arn '$LISTENER_ARN' --endpoint-group-region '$AWS_REGION' --endpoints EndpointId='$ENI_ID',Weight=100 --health-check-port 80 --health-check-path '/health' --query 'EndpointGroup.EndpointGroupArn' --output text --no-cli-pager")
 
 # Get accelerator DNS name
-ACCELERATOR_DNS=$(retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.DnsName' --output text --no-cli-pager")
+ACCELERATOR_DNS=$(retry_aws "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.DnsName' --output text --no-cli-pager")
 
 log "Accelerator DNS: $ACCELERATOR_DNS"
 
