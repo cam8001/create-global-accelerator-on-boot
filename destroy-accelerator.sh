@@ -3,6 +3,10 @@
 # Destroy Global Accelerator and cleanup Route 53 DNS
 set -e
 
+# Source shared utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/accelerator-utils.sh"
+
 # Use appropriate directories based on user privileges
 if [[ $EUID -eq 0 ]]; then
     SCRIPT_OUTPUT_DIR="/var/lib/aws-global-accelerator-script"
@@ -19,27 +23,7 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE" >&2
 }
 
-# Retry function with exponential backoff
-retry_aws() {
-    local cmd="$1"
-    local attempt=1
-    
-    while [[ $attempt -le $RETRY_ATTEMPTS ]]; do
-        if eval "$cmd"; then
-            return 0
-        fi
-        
-        if [[ $attempt -eq $RETRY_ATTEMPTS ]]; then
-            log "ERROR: Command failed after $RETRY_ATTEMPTS attempts: $cmd"
-            return 1
-        fi
-        
-        local delay=$((2 ** attempt))
-        log "Attempt $attempt failed, retrying in ${delay}s..."
-        sleep $delay
-        ((attempt++))
-    done
-}
+
 
 log "Starting Global Accelerator cleanup..."
 
@@ -104,14 +88,14 @@ EOF
 fi
 
 # Check if accelerator exists before attempting deletion
-if retry_aws "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager >/dev/null 2>&1"; then
+if retry_describe_accelerator "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager >/dev/null 2>&1"; then
     log "Disabling Global Accelerator..."
     if retry_aws "aws globalaccelerator update-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --enabled false --no-cli-pager"; then
         log "Accelerator disabled successfully"
         
         # Wait for accelerator to be disabled
         log "Waiting for accelerator to be disabled..."
-        retry_aws "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
+        retry_describe_accelerator "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
         
         log "Deleting Global Accelerator..."
         if retry_aws "aws globalaccelerator delete-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager"; then

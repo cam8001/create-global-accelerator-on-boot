@@ -3,6 +3,10 @@
 # Create Global Accelerator and update Route 53 DNS
 set -e
 
+# Source shared utilities
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/accelerator-utils.sh"
+
 # Default values
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 # Use appropriate directories based on user privileges
@@ -20,52 +24,9 @@ log() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE" >&2
 }
 
-# Retry function with exponential backoff
-retry_aws() {
-    local cmd="$1"
-    local attempt=1
-    
-    while [[ $attempt -le $RETRY_ATTEMPTS ]]; do
-        if eval "$cmd"; then
-            return 0
-        fi
-        
-        if [[ $attempt -eq $RETRY_ATTEMPTS ]]; then
-            log "ERROR: Command failed after $RETRY_ATTEMPTS attempts: $cmd"
-            return 1
-        fi
-        
-        local delay=$((2 ** attempt))
-        log "Attempt $attempt failed, retrying in ${delay}s..."
-        sleep $delay
-        ((attempt++))
-    done
-}
 
-# Retry function specifically for describe-accelerator with longer timeouts
-retry_describe_accelerator() {
-    local cmd="$1"
-    local attempt=1
-    local max_attempts=5
-    local initial_delay=30
-    
-    while [[ $attempt -le $max_attempts ]]; do
-        if eval "$cmd"; then
-            return 0
-        fi
-        
-        if [[ $attempt -eq $max_attempts ]]; then
-            log "ERROR: Accelerator deployment check failed after $max_attempts attempts: $cmd"
-            return 1
-        fi
-        
-        # Exponential backoff starting at 30 seconds: 30, 60, 120, 240
-        local delay=$((initial_delay * (2 ** (attempt - 1))))
-        log "Attempt $attempt failed, retrying in ${delay}s..."
-        sleep $delay
-        ((attempt++))
-    done
-}
+
+
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
