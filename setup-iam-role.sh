@@ -53,13 +53,29 @@ PERMISSIONS_POLICY=$(cat <<EOF
             "Effect": "Allow",
             "Action": [
                 "globalaccelerator:*",
-                "route53:ChangeResourceRecordSets",
-                "route53:GetChange",
-                "route53:ListResourceRecordSets",
                 "ec2:DescribeNetworkInterfaces",
                 "ec2:DescribeInstances"
             ],
             "Resource": "*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "route53:ChangeResourceRecordSets",
+                "route53:GetChange"
+            ],
+            "Resource": "arn:aws:route53:::hostedzone/Z1234567890ABC",
+            "Condition": {
+                "ForAllValues:StringEquals": {
+                    "route53:ChangeResourceRecordSetsRecordTypes": "CNAME",
+                    "route53:ChangeResourceRecordSetsNormalizedRecordNames": "myapp.example.com"
+                }
+            }
+        },
+        {
+            "Effect": "Allow",
+            "Action": "route53:ListResourceRecordSets",
+            "Resource": "arn:aws:route53:::hostedzone/Z1234567890ABC"
         }
     ]
 }
@@ -95,3 +111,6 @@ echo "$ROLE_NAME" > "$ROLE_FILE"
 echo "$POLICY_NAME" > "$SCRIPT_DIR/policy-name"
 
 echo "IAM role $ROLE_NAME and policy $POLICY_NAME created successfully"
+echo "WARNING: The policy contains example values that must be updated:"
+echo "  - Replace 'Z1234567890ABC' with your actual hosted zone ID"
+echo "  - Replace 'myapp.example.com' with your actual subdomain"

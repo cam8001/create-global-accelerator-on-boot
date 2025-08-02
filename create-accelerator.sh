@@ -4,7 +4,6 @@
 set -e
 
 # Default values
-RECORD_NAME="${RECORD_NAME:-accelerator}"
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 # Use appropriate directories based on user privileges
 if [[ $EUID -eq 0 ]]; then
@@ -80,6 +79,11 @@ fi
 
 if [[ -z "$AWS_REGION" ]]; then
     log "ERROR: --region or AWS_REGION environment variable required"
+    exit 1
+fi
+
+if [[ -z "$RECORD_NAME" ]]; then
+    log "ERROR: --record-name or RECORD_NAME environment variable required"
     exit 1
 fi
 

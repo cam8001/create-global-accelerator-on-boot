@@ -34,12 +34,12 @@ This project provides automation scripts to:
 |-----------|---------------------|-------------|
 | `--hosted-zone-id` | `HOSTED_ZONE_ID` | Route 53 hosted zone ID |
 | `--region` | `AWS_REGION` | AWS region for Global Accelerator |
+| `--record-name` | `RECORD_NAME` | DNS record name (subdomain) |
 
 ### Optional Parameters
 
 | Parameter | Environment Variable | Default | Description |
 |-----------|---------------------|---------|-------------|
-| `--record-name` | `RECORD_NAME` | `accelerator` | DNS record name (subdomain) |
 | `--retry-attempts` | `RETRY_ATTEMPTS` | `3` | Number of retry attempts for AWS API calls |
 | `--accelerator-name` | `ACCELERATOR_NAME` | `ec2-accelerator-{instance-id}` | Global Accelerator name |
 
@@ -53,10 +53,14 @@ sudo ./setup-iam-role.sh
 
 This creates a service-linked role named `ec2-global-accelerator-r53-{unique-id}` with permissions for:
 - Global Accelerator management
-- Route 53 record updates
+- Route 53 record updates (limited to specific hosted zone and subdomain)
 - EC2 ENI describe operations
 
 The role name is stored in `/var/lib/accelerator-role-name` for reuse.
+
+**IMPORTANT**: The IAM policy contains example values that must be updated before use:
+- Replace `Z1234567890ABC` with your actual hosted zone ID
+- Replace `myapp.example.com` with your actual subdomain
 
 ### 2. Health Check Endpoint
 
@@ -89,10 +93,11 @@ sudo systemctl enable accelerator-shutdown.service
 # Using environment variables
 export HOSTED_ZONE_ID="Z1234567890ABC"
 export AWS_REGION="us-east-1"
+export RECORD_NAME="mysubdomain.example.com"
 ./create-accelerator.sh
 
 # Using parameters
-./create-accelerator.sh --hosted-zone-id Z1234567890ABC --region us-east-1 --record-name myapp
+./create-accelerator.sh --hosted-zone-id Z1234567890ABC --region us-east-1 --record-name mysubdomain.example.com
 ```
 
 #### Destroy Global Accelerator
