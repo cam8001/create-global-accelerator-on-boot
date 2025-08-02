@@ -42,6 +42,31 @@ retry_aws() {
     done
 }
 
+# Retry function specifically for describe-accelerator with longer timeouts
+retry_describe_accelerator() {
+    local cmd="$1"
+    local attempt=1
+    local max_attempts=5
+    local initial_delay=30
+    
+    while [[ $attempt -le $max_attempts ]]; do
+        if eval "$cmd"; then
+            return 0
+        fi
+        
+        if [[ $attempt -eq $max_attempts ]]; then
+            log "ERROR: Accelerator deployment check failed after $max_attempts attempts: $cmd"
+            return 1
+        fi
+        
+        # Exponential backoff starting at 30 seconds: 30, 60, 120, 240
+        local delay=$((initial_delay * (2 ** (attempt - 1))))
+        log "Attempt $attempt failed, retrying in ${delay}s..."
+        sleep $delay
+        ((attempt++))
+    done
+}
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -130,7 +155,7 @@ echo "$ACCELERATOR_ARN" > "$SCRIPT_OUTPUT_DIR/accelerator-arn"
 
 # Wait for accelerator to be deployed
 log "Waiting for accelerator deployment..."
-retry_aws "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
+retry_describe_accelerator "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
 
 # Create listener
 log "Creating TCP listener on port 22..."
