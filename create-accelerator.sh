@@ -85,12 +85,6 @@ fi
 
 log "Starting Global Accelerator creation..."
 
-# Check/create IAM role
-if ! ./setup-iam-role.sh; then
-    log "ERROR: Failed to setup IAM role"
-    exit 1
-fi
-
 # Get instance metadata using IMDSv2
 TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -s)
 INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/instance-id)
@@ -102,7 +96,7 @@ log "Instance ID: $INSTANCE_ID"
 log "Accelerator Name: $ACCELERATOR_NAME"
 
 # Get primary ENI
-ENI_ID=$(retry_aws "aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[0].Instances[0].NetworkInterfaces[0].NetworkInterfaceId' --output text")
+ENI_ID=$(retry_aws "aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[0].Instances[0].NetworkInterfaces[0].NetworkInterfaceId' --output text --no-cli-pager")
 
 if [[ "$ENI_ID" == "None" || -z "$ENI_ID" ]]; then
     log "ERROR: Could not find primary ENI for instance $INSTANCE_ID"
@@ -113,7 +107,7 @@ log "Primary ENI: $ENI_ID"
 
 # Create Global Accelerator
 log "Creating Global Accelerator..."
-ACCELERATOR_ARN=$(retry_aws "aws globalaccelerator create-accelerator --name '$ACCELERATOR_NAME' --ip-address-type IPV4 --enabled --query 'Accelerator.AcceleratorArn' --output text")
+ACCELERATOR_ARN=$(retry_aws "aws globalaccelerator create-accelerator --name '$ACCELERATOR_NAME' --ip-address-type IPV4 --enabled --query 'Accelerator.AcceleratorArn' --output text --no-cli-pager")
 
 if [[ -z "$ACCELERATOR_ARN" ]]; then
     log "ERROR: Failed to create Global Accelerator"
@@ -131,18 +125,18 @@ echo "$ACCELERATOR_ARN" > "$SCRIPT_DIR/accelerator-arn"
 
 # Wait for accelerator to be deployed
 log "Waiting for accelerator deployment..."
-retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text | grep -q 'DEPLOYED'"
+retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
 
 # Create listener
 log "Creating TCP listener on port 22..."
-LISTENER_ARN=$(retry_aws "aws globalaccelerator create-listener --accelerator-arn '$ACCELERATOR_ARN' --protocol TCP --port-ranges FromPort=22,ToPort=22 --query 'Listener.ListenerArn' --output text")
+LISTENER_ARN=$(retry_aws "aws globalaccelerator create-listener --accelerator-arn '$ACCELERATOR_ARN' --protocol TCP --port-ranges FromPort=22,ToPort=22 --query 'Listener.ListenerArn' --output text --no-cli-pager")
 
 # Create endpoint group
 log "Creating endpoint group..."
-ENDPOINT_GROUP_ARN=$(retry_aws "aws globalaccelerator create-endpoint-group --listener-arn '$LISTENER_ARN' --endpoint-group-region '$AWS_REGION' --endpoints EndpointId='$ENI_ID',Weight=100 --health-check-port 80 --health-check-path '/health' --query 'EndpointGroup.EndpointGroupArn' --output text")
+ENDPOINT_GROUP_ARN=$(retry_aws "aws globalaccelerator create-endpoint-group --listener-arn '$LISTENER_ARN' --endpoint-group-region '$AWS_REGION' --endpoints EndpointId='$ENI_ID',Weight=100 --health-check-port 80 --health-check-path '/health' --query 'EndpointGroup.EndpointGroupArn' --output text --no-cli-pager")
 
 # Get accelerator DNS name
-ACCELERATOR_DNS=$(retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.DnsName' --output text")
+ACCELERATOR_DNS=$(retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.DnsName' --output text --no-cli-pager")
 
 log "Accelerator DNS: $ACCELERATOR_DNS"
 
@@ -169,7 +163,7 @@ CHANGE_BATCH=$(cat <<EOF
 EOF
 )
 
-CHANGE_ID=$(retry_aws "aws route53 change-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --change-batch '$CHANGE_BATCH' --query 'ChangeInfo.Id' --output text")
+CHANGE_ID=$(retry_aws "aws route53 change-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --change-batch '$CHANGE_BATCH' --query 'ChangeInfo.Id' --output text --no-cli-pager")
 
 # Store DNS record info
 echo "$HOSTED_ZONE_ID:$RECORD_NAME" > "$SCRIPT_DIR/accelerator-dns-record"

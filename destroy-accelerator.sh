@@ -67,7 +67,7 @@ if [[ -f "$SCRIPT_DIR/accelerator-dns-record" ]]; then
         log "Removing Route 53 CNAME record: $RECORD_NAME"
         
         # Get current record value
-        CURRENT_VALUE=$(retry_aws "aws route53 list-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --query \"ResourceRecordSets[?Name=='$RECORD_NAME.' && Type=='CNAME'].ResourceRecords[0].Value\" --output text" 2>/dev/null || echo "")
+        CURRENT_VALUE=$(retry_aws "aws route53 list-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --query \"ResourceRecordSets[?Name=='$RECORD_NAME.' && Type=='CNAME'].ResourceRecords[0].Value\" --output text --no-cli-pager" 2>/dev/null || echo "")
         
         if [[ -n "$CURRENT_VALUE" && "$CURRENT_VALUE" != "None" ]]; then
             CHANGE_BATCH=$(cat <<EOF
@@ -91,7 +91,7 @@ if [[ -f "$SCRIPT_DIR/accelerator-dns-record" ]]; then
 EOF
 )
             
-            if retry_aws "aws route53 change-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --change-batch '$CHANGE_BATCH' --query 'ChangeInfo.Id' --output text"; then
+            if retry_aws "aws route53 change-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --change-batch '$CHANGE_BATCH' --query 'ChangeInfo.Id' --output text --no-cli-pager"; then
                 log "Route 53 record deleted successfully"
             else
                 log "WARNING: Failed to delete Route 53 record"
@@ -103,17 +103,17 @@ EOF
 fi
 
 # Check if accelerator exists before attempting deletion
-if retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' >/dev/null 2>&1"; then
+if retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager >/dev/null 2>&1"; then
     log "Disabling Global Accelerator..."
-    if retry_aws "aws globalaccelerator update-accelerator --accelerator-arn '$ACCELERATOR_ARN' --enabled false"; then
+    if retry_aws "aws globalaccelerator update-accelerator --accelerator-arn '$ACCELERATOR_ARN' --enabled false --no-cli-pager"; then
         log "Accelerator disabled successfully"
         
         # Wait for accelerator to be disabled
         log "Waiting for accelerator to be disabled..."
-        retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text | grep -q 'DEPLOYED'"
+        retry_aws "aws globalaccelerator describe-accelerator --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
         
         log "Deleting Global Accelerator..."
-        if retry_aws "aws globalaccelerator delete-accelerator --accelerator-arn '$ACCELERATOR_ARN'"; then
+        if retry_aws "aws globalaccelerator delete-accelerator --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager"; then
             log "Global Accelerator deleted successfully"
         else
             log "ERROR: Failed to delete Global Accelerator"

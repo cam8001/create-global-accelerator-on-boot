@@ -110,14 +110,13 @@ The scripts are designed to run automatically:
 
 ### create-accelerator.sh
 
-1. **IAM Role Check**: Verifies or creates required IAM role
-2. **ENI Discovery**: Identifies current instance's primary ENI
-3. **Global Accelerator Creation**: 
+1. **ENI Discovery**: Identifies current instance's primary ENI
+2. **Global Accelerator Creation**: 
    - Creates accelerator with TCP listener on port 22
    - Configures endpoint group pointing to instance ENI
    - Sets health check to port 80, path `/health`
-4. **DNS Update**: Creates/updates Route 53 CNAME record
-5. **State Persistence**: Stores accelerator ARN for cleanup
+3. **DNS Update**: Creates/updates Route 53 CNAME record
+4. **State Persistence**: Stores accelerator ARN for cleanup
 
 ### destroy-accelerator.sh
 
@@ -139,6 +138,7 @@ The scripts are designed to run automatically:
 - `/var/lib/aws-global-accelerator-script/` - Script state directory
 - `/var/lib/aws-global-accelerator-script/accelerator-arn` - Stores Global Accelerator ARN
 - `/var/lib/aws-global-accelerator-script/role-name` - Stores IAM role name
+- `/var/lib/aws-global-accelerator-script/policy-name` - Stores IAM policy name
 - `/var/lib/aws-global-accelerator-script/accelerator-dns-record` - Stores DNS record details
 - `/var/lib/aws-global-accelerator-script/accelerator.log` - Operation logs
 - `/var/lib/aws-global-accelerator-script/README.txt` - Directory description

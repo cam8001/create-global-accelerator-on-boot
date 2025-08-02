@@ -15,7 +15,7 @@ ROLE_FILE="$SCRIPT_DIR/role-name"
 # Check if role already exists
 if [[ -f "$ROLE_FILE" ]]; then
     ROLE_NAME=$(cat "$ROLE_FILE")
-    if aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
+    if aws iam get-role --role-name "$ROLE_NAME" --no-cli-pager >/dev/null 2>&1; then
         echo "IAM role $ROLE_NAME already exists"
         exit 0
     fi
@@ -66,22 +66,32 @@ PERMISSIONS_POLICY=$(cat <<EOF
 EOF
 )
 
+POLICY_NAME="GlobalAcceleratorRoute53Policy-$UNIQUE_ID"
+
+# Create managed policy
+POLICY_ARN=$(aws iam create-policy \
+    --policy-name "$POLICY_NAME" \
+    --policy-document "$PERMISSIONS_POLICY" \
+    --query 'Policy.Arn' --output text --no-cli-pager)
+
 # Create role
 aws iam create-role \
     --role-name "$ROLE_NAME" \
-    --assume-role-policy-document "$TRUST_POLICY"
+    --assume-role-policy-document "$TRUST_POLICY" \
+    --no-cli-pager
 
-# Create and attach policy
-aws iam put-role-policy \
+# Attach policy to role
+aws iam attach-role-policy \
     --role-name "$ROLE_NAME" \
-    --policy-name "GlobalAcceleratorRoute53Policy" \
-    --policy-document "$PERMISSIONS_POLICY"
+    --policy-arn "$POLICY_ARN" \
+    --no-cli-pager
 
 # Create script directory and description
 mkdir -p "$SCRIPT_DIR"
 echo "Files created by AWS Global Accelerator automation scripts for managing accelerator endpoints and Route 53 DNS records." > "$SCRIPT_DIR/README.txt"
 
-# Store role name
+# Store role name and policy name
 echo "$ROLE_NAME" > "$ROLE_FILE"
+echo "$POLICY_NAME" > "$SCRIPT_DIR/policy-name"
 
-echo "IAM role $ROLE_NAME created successfully"
+echo "IAM role $ROLE_NAME and policy $POLICY_NAME created successfully"
