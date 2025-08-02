@@ -1,1 +1,2 @@
 git config --global gpg.format ssh
+trying with -S to git commit
