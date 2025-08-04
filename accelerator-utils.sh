@@ -2,6 +2,21 @@
 
 # Shared utility functions for Global Accelerator scripts
 
+# Use appropriate directories based on user privileges
+if [[ $EUID -eq 0 ]]; then
+    SCRIPT_OUTPUT_DIR="/var/lib/aws-global-accelerator-script"
+else
+    SCRIPT_OUTPUT_DIR="$HOME/.aws-global-accelerator-script"
+fi
+
+LOG_FILE="$SCRIPT_OUTPUT_DIR/accelerator.log"
+
+# Logging function
+log() {
+    mkdir -p "$SCRIPT_OUTPUT_DIR"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE" >&2
+}
+
 # Retry function with exponential backoff
 retry_aws() {
     local cmd="$1"

@@ -9,24 +9,6 @@ source "$SCRIPT_DIR/accelerator-utils.sh"
 
 # Default values
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
-# Use appropriate directories based on user privileges
-if [[ $EUID -eq 0 ]]; then
-    SCRIPT_OUTPUT_DIR="/var/lib/aws-global-accelerator-script"
-else
-    SCRIPT_OUTPUT_DIR="$HOME/.aws-global-accelerator-script"
-fi
-
-LOG_FILE="$SCRIPT_OUTPUT_DIR/accelerator.log"
-
-# Logging function
-log() {
-    mkdir -p "$SCRIPT_OUTPUT_DIR"
-    echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE" >&2
-}
-
-
-
-
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -121,6 +103,10 @@ retry_describe_accelerator "aws globalaccelerator describe-accelerator --region 
 # Create listener
 log "Creating TCP listener on port 22..."
 LISTENER_ARN=$(retry_aws "aws globalaccelerator create-listener --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --protocol TCP --port-ranges FromPort=22,ToPort=22 --query 'Listener.ListenerArn' --output text --no-cli-pager")
+
+# Wait for listener to be ready
+log "Waiting for listener to be ready..."
+retry_aws "aws globalaccelerator describe-listener --region us-west-2 --listener-arn '$LISTENER_ARN' --query 'Listener.ListenerArn' --output text --no-cli-pager >/dev/null"
 
 # Create endpoint group
 log "Creating endpoint group..."
