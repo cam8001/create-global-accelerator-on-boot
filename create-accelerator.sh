@@ -1,11 +1,13 @@
 #!/bin/bash
 
-# Create Global Accelerator and update Route 53 DNS
+# Create Global Accelerator endpoint
+# Focuses only on Global Accelerator management, no DNS operations
 set -e
 
-# Source shared utilities
+# Source shared utilities and modules
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/accelerator-utils.sh"
+source "$SCRIPT_DIR/accelerator-manager.sh"
 
 # Default values
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
@@ -13,16 +15,8 @@ RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --hosted-zone-id)
-            HOSTED_ZONE_ID="$2"
-            shift 2
-            ;;
         --region)
             AWS_REGION="$2"
-            shift 2
-            ;;
-        --record-name)
-            RECORD_NAME="$2"
             shift 2
             ;;
         --retry-attempts)
@@ -33,118 +27,110 @@ while [[ $# -gt 0 ]]; do
             ACCELERATOR_NAME="$2"
             shift 2
             ;;
+        --ip-address-type)
+            GA_IP_ADDRESS_TYPE="$2"
+            shift 2
+            ;;
+        --protocol)
+            GA_PROTOCOL="$2"
+            shift 2
+            ;;
+        --port)
+            GA_PORT="$2"
+            shift 2
+            ;;
+        --health-check-port)
+            GA_HEALTH_CHECK_PORT="$2"
+            shift 2
+            ;;
+        --health-check-path)
+            GA_HEALTH_CHECK_PATH="$2"
+            shift 2
+            ;;
         *)
             log "ERROR: Unknown parameter $1"
+            echo "Usage: $0 [OPTIONS]"
+            echo "Options:"
+            echo "  --region REGION                AWS region where EC2 instance is located (required)"
+            echo "  --accelerator-name NAME        Name for the Global Accelerator (optional)"
+            echo "  --ip-address-type TYPE         IP address type: IPV4 or DUAL_STACK (default: IPV4)"
+            echo "  --protocol PROTOCOL            Listener protocol: TCP or UDP (default: TCP)"
+            echo "  --port PORT                    Listener port (default: 22)"
+            echo "  --health-check-port PORT       Health check port (default: 80)"
+            echo "  --health-check-path PATH       Health check path (default: /health)"
+            echo "  --retry-attempts COUNT         Number of retry attempts (default: 3)"
             exit 1
             ;;
     esac
 done
 
 # Validate required parameters
-if [[ -z "$HOSTED_ZONE_ID" ]]; then
-    log "ERROR: --hosted-zone-id or HOSTED_ZONE_ID environment variable required"
-    exit 1
-fi
-
 if [[ -z "$AWS_REGION" ]]; then
     log "ERROR: --region or AWS_REGION environment variable required"
-    exit 1
-fi
-
-if [[ -z "$RECORD_NAME" ]]; then
-    log "ERROR: --record-name or RECORD_NAME environment variable required"
+    log "This specifies the AWS region where your target EC2 instance is located"
     exit 1
 fi
 
 log "Starting Global Accelerator creation..."
 
-# Get instance metadata using IMDSv2
-TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" -s)
-INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN" -s http://169.254.169.254/latest/meta-data/instance-id)
+# Get instance metadata
+if ! ga_get_instance_metadata; then
+    log "ERROR: Failed to get EC2 instance metadata"
+    log "Ensure this script is running on an EC2 instance with IMDSv2 enabled"
+    exit 1
+fi
 
-# Set default accelerator name
+# Set default accelerator name if not provided
 ACCELERATOR_NAME="${ACCELERATOR_NAME:-ec2-accelerator-$INSTANCE_ID}"
 
-log "Instance ID: $INSTANCE_ID"
-log "Accelerator Name: $ACCELERATOR_NAME"
-
-# Get primary ENI
-ENI_ID=$(retry_aws "aws ec2 describe-instances --instance-ids $INSTANCE_ID --query 'Reservations[0].Instances[0].NetworkInterfaces[0].NetworkInterfaceId' --output text --no-cli-pager")
-
-if [[ "$ENI_ID" == "None" || -z "$ENI_ID" ]]; then
-    log "ERROR: Could not find primary ENI for instance $INSTANCE_ID"
-    exit 1
-fi
-
-log "Primary ENI: $ENI_ID"
-
-# Create Global Accelerator
-log "Creating Global Accelerator..."
-ACCELERATOR_ARN=$(retry_aws "aws globalaccelerator create-accelerator --region us-west-2 --name '$ACCELERATOR_NAME' --ip-address-type IPV4 --enabled --query 'Accelerator.AcceleratorArn' --output text --no-cli-pager")
-
-if [[ -z "$ACCELERATOR_ARN" ]]; then
-    log "ERROR: Failed to create Global Accelerator"
-    exit 1
-fi
-
-log "Created Global Accelerator: $ACCELERATOR_ARN"
+log "Configuration:"
+log "  Instance ID: $INSTANCE_ID"
+log "  Primary ENI: $PRIMARY_ENI_ID"
+log "  Accelerator Name: $ACCELERATOR_NAME"
+log "  Endpoint Region: $AWS_REGION"
+log "  IP Address Type: ${GA_IP_ADDRESS_TYPE:-IPV4}"
+log "  Protocol: ${GA_PROTOCOL:-TCP}"
+log "  Port: ${GA_PORT:-22}"
+log "  Health Check Port: ${GA_HEALTH_CHECK_PORT:-80}"
+log "  Health Check Path: ${GA_HEALTH_CHECK_PATH:-/health}"
 
 # Create script directory and description
 mkdir -p "$SCRIPT_OUTPUT_DIR"
-echo "Files created by AWS Global Accelerator automation scripts for managing accelerator endpoints and Route 53 DNS records." > "$SCRIPT_OUTPUT_DIR/README.txt"
+echo "Files created by AWS Global Accelerator automation scripts for managing accelerator endpoints." > "$SCRIPT_OUTPUT_DIR/README.txt"
 
-# Store accelerator ARN
-echo "$ACCELERATOR_ARN" > "$SCRIPT_OUTPUT_DIR/accelerator-arn"
+# Check if accelerator already exists
+if ga_load_accelerator_arn; then
+    log "WARNING: Found existing accelerator ARN: $STORED_ACCELERATOR_ARN"
+    log "Use destroy-accelerator.sh first to clean up existing resources"
+    exit 1
+fi
 
-# Wait for accelerator to be deployed
-log "Waiting for accelerator deployment..."
-retry_describe_accelerator "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Status' --output text --no-cli-pager | grep -q 'DEPLOYED'"
+# Create complete Global Accelerator setup
+log "Creating Global Accelerator infrastructure..."
+ACCELERATOR_ARN=$(ga_create_complete_setup "$ACCELERATOR_NAME" "$AWS_REGION" "$PRIMARY_ENI_ID")
 
-# Create listener
-log "Creating TCP listener on port 22..."
-LISTENER_ARN=$(retry_aws "aws globalaccelerator create-listener --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --protocol TCP --port-ranges FromPort=22,ToPort=22 --query 'Listener.ListenerArn' --output text --no-cli-pager")
-
-# Wait for listener to be ready
-log "Waiting for listener to be ready..."
-retry_aws "aws globalaccelerator describe-listener --region us-west-2 --listener-arn '$LISTENER_ARN' --query 'Listener.ListenerArn' --output text --no-cli-pager >/dev/null"
-
-# Create endpoint group
-log "Creating endpoint group..."
-ENDPOINT_GROUP_ARN=$(retry_aws "aws globalaccelerator create-endpoint-group --region us-west-2 --listener-arn '$LISTENER_ARN' --endpoint-group-region '$AWS_REGION' --endpoints EndpointId='$ENI_ID',Weight=100 --health-check-port 80 --health-check-path '/health' --query 'EndpointGroup.EndpointGroupArn' --output text --no-cli-pager")
+if [[ $? -ne 0 || -z "$ACCELERATOR_ARN" ]]; then
+    log "ERROR: Failed to create Global Accelerator setup"
+    exit 1
+fi
 
 # Get accelerator DNS name
-ACCELERATOR_DNS=$(retry_aws "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.DnsName' --output text --no-cli-pager")
+ACCELERATOR_DNS=$(ga_get_dns_name "$ACCELERATOR_ARN")
 
-log "Accelerator DNS: $ACCELERATOR_DNS"
+if [[ $? -ne 0 || -z "$ACCELERATOR_DNS" ]]; then
+    log "ERROR: Failed to get accelerator DNS name"
+    exit 1
+fi
 
-# Update Route 53 record
-log "Updating Route 53 CNAME record..."
-CHANGE_BATCH=$(cat <<EOF
-{
-    "Changes": [
-        {
-            "Action": "UPSERT",
-            "ResourceRecordSet": {
-                "Name": "$RECORD_NAME",
-                "Type": "CNAME",
-                "TTL": 300,
-                "ResourceRecords": [
-                    {
-                        "Value": "$ACCELERATOR_DNS"
-                    }
-                ]
-            }
-        }
-    ]
-}
-EOF
-)
+log "Global Accelerator created successfully:"
+log "  ARN: $ACCELERATOR_ARN"
+log "  DNS Name: $ACCELERATOR_DNS"
+log "  Status: Provisioning (may take 2-3 minutes to become active)"
 
-CHANGE_ID=$(retry_aws "aws route53 change-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --change-batch '$CHANGE_BATCH' --query 'ChangeInfo.Id' --output text --no-cli-pager")
-
-# Store DNS record info
-echo "$HOSTED_ZONE_ID:$RECORD_NAME" > "$SCRIPT_OUTPUT_DIR/accelerator-dns-record"
-
-log "Route 53 change submitted: $CHANGE_ID"
 log "Global Accelerator setup completed successfully"
-log "DNS record: $RECORD_NAME -> $ACCELERATOR_DNS"
+log "Your service will be accessible via: $ACCELERATOR_DNS"
+log ""
+log "Next steps:"
+log "1. Wait 2-3 minutes for the accelerator to become active"
+log "2. Test connectivity: ssh user@$ACCELERATOR_DNS (if using SSH)"
+log "3. Use destroy-accelerator.sh to clean up when no longer needed"

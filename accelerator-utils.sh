@@ -11,10 +11,23 @@ fi
 
 LOG_FILE="$SCRIPT_OUTPUT_DIR/accelerator.log"
 
-# Logging function
+# Logging functions
 log() {
     mkdir -p "$SCRIPT_OUTPUT_DIR"
     echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG_FILE" >&2
+}
+
+# Specific logging functions with level indicators
+log_info() {
+    log "INFO: $*"
+}
+
+log_warning() {
+    log "WARNING: $*"
+}
+
+log_error() {
+    log "ERROR: $*"
 }
 
 # Retry function with exponential backoff

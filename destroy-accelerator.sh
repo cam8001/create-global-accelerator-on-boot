@@ -1,13 +1,45 @@
 #!/bin/bash
 
-# Destroy Global Accelerator and cleanup Route 53 DNS
+# Destroy Global Accelerator endpoint
+# Focuses only on Global Accelerator cleanup, no DNS operations
 set -e
 
-# Source shared utilities
+# Source shared utilities and modules
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/accelerator-utils.sh"
+source "$SCRIPT_DIR/accelerator-manager.sh"
 
 RETRY_ATTEMPTS="${RETRY_ATTEMPTS:-3}"
+
+# Parse arguments for help
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --help|-h)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Destroys the Global Accelerator created by create-accelerator.sh"
+            echo ""
+            echo "Options:"
+            echo "  --help, -h                     Show this help message"
+            echo "  --force                        Skip confirmation prompt"
+            echo ""
+            echo "This script will:"
+            echo "1. Load the stored Global Accelerator ARN"
+            echo "2. Disable and delete the Global Accelerator"
+            echo "3. Clean up stored state files"
+            exit 0
+            ;;
+        --force)
+            FORCE_CLEANUP=true
+            shift
+            ;;
+        *)
+            log "ERROR: Unknown parameter $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
 
 # Check for required dependencies
 if ! command -v jq >/dev/null 2>&1; then
@@ -17,98 +49,51 @@ fi
 
 log "Starting Global Accelerator cleanup..."
 
-# Check if accelerator ARN exists
-if [[ ! -f "$SCRIPT_OUTPUT_DIR/accelerator-arn" ]]; then
-    log "No accelerator ARN found, nothing to cleanup"
+# Load stored accelerator ARN
+if ! ga_load_accelerator_arn; then
+    log "No accelerator ARN found in $SCRIPT_OUTPUT_DIR"
+    log "Nothing to cleanup - no Global Accelerator resources found"
     exit 0
 fi
 
-ACCELERATOR_ARN=$(cat "$SCRIPT_OUTPUT_DIR/accelerator-arn")
+log "Found stored accelerator: $STORED_ACCELERATOR_ARN"
 
-if [[ -z "$ACCELERATOR_ARN" ]]; then
-    log "Empty accelerator ARN, nothing to cleanup"
-    exit 0
-fi
+# Get accelerator details for confirmation
+ACCELERATOR_DNS=$(ga_get_dns_name "$STORED_ACCELERATOR_ARN" 2>/dev/null || echo "Unable to retrieve DNS name")
 
-log "Cleaning up accelerator: $ACCELERATOR_ARN"
+log "Accelerator details:"
+log "  ARN: $STORED_ACCELERATOR_ARN"
+log "  DNS Name: $ACCELERATOR_DNS"
 
-# Check if DNS record info exists
-if [[ -f "$SCRIPT_OUTPUT_DIR/accelerator-dns-record" ]]; then
-    DNS_INFO=$(cat "$SCRIPT_OUTPUT_DIR/accelerator-dns-record")
-    HOSTED_ZONE_ID="${DNS_INFO%:*}"
-    RECORD_NAME="${DNS_INFO#*:}"
-
-    if [[ -n "$HOSTED_ZONE_ID" && -n "$RECORD_NAME" ]]; then
-        log "Removing Route 53 CNAME record: $RECORD_NAME"
-
-        # Get current record details (value and TTL)
-        RECORD_DETAILS=$(retry_aws "aws route53 list-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --query \"ResourceRecordSets[?Name=='$RECORD_NAME.' && Type=='CNAME'] | [0]\" --output json --no-cli-pager" 2>/dev/null || echo "{}")
-
-        if [[ "$RECORD_DETAILS" != "{}" && "$RECORD_DETAILS" != "null" ]]; then
-            CURRENT_VALUE=$(echo "$RECORD_DETAILS" | jq -r '.ResourceRecords[0].Value // empty')
-            CURRENT_TTL=$(echo "$RECORD_DETAILS" | jq -r '.TTL // 300')
-
-            if [[ -n "$CURRENT_VALUE" ]]; then
-                CHANGE_BATCH=$(cat <<EOF
-{
-    "Changes": [
-        {
-            "Action": "DELETE",
-            "ResourceRecordSet": {
-                "Name": "$RECORD_NAME",
-                "Type": "CNAME",
-                "TTL": $CURRENT_TTL,
-                "ResourceRecords": [
-                    {
-                        "Value": "$CURRENT_VALUE"
-                    }
-                ]
-            }
-        }
-    ]
-}
-EOF
-)
-
-                if retry_aws "aws route53 change-resource-record-sets --hosted-zone-id '$HOSTED_ZONE_ID' --change-batch '$CHANGE_BATCH' --query 'ChangeInfo.Id' --output text --no-cli-pager"; then
-                    log "Route 53 record deleted successfully"
-                else
-                    log "WARNING: Failed to delete Route 53 record"
-                fi
-            else
-                log "Route 53 record value not found"
-            fi
-        else
-            log "Route 53 record not found or already deleted"
-        fi
+# Confirmation prompt unless forced
+if [[ "$FORCE_CLEANUP" != "true" ]]; then
+    echo ""
+    echo "WARNING: This will permanently delete the Global Accelerator and all its resources."
+    echo "This action cannot be undone."
+    echo ""
+    read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+    echo ""
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log "Cleanup cancelled by user"
+        exit 0
     fi
 fi
 
-# Check if accelerator exists before attempting deletion
-if retry_describe_accelerator "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager >/dev/null 2>&1"; then
-    log "Disabling Global Accelerator..."
-    if retry_aws "aws globalaccelerator update-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --enabled false --no-cli-pager"; then
-        log "Accelerator disabled successfully"
+# Delete the Global Accelerator
+log "Disabling and deleting Global Accelerator: $STORED_ACCELERATOR_ARN"
+log "This may take 2-3 minutes to complete..."
 
-        # Wait for accelerator to be disabled
-        log "Waiting for accelerator to be disabled..."
-        retry_describe_accelerator "aws globalaccelerator describe-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --query 'Accelerator.Enabled' --output text --no-cli-pager | grep -q 'false'"
-
-        log "Deleting Global Accelerator..."
-        if retry_aws "aws globalaccelerator delete-accelerator --region us-west-2 --accelerator-arn '$ACCELERATOR_ARN' --no-cli-pager"; then
-            log "Global Accelerator deleted successfully"
-        else
-            log "ERROR: Failed to delete Global Accelerator"
-        fi
-    else
-        log "ERROR: Failed to disable Global Accelerator"
-    fi
+if ga_delete_accelerator "$STORED_ACCELERATOR_ARN"; then
+    log "Global Accelerator cleanup completed successfully"
 else
-    log "Global Accelerator not found or already deleted"
+    log "ERROR: Failed to cleanup Global Accelerator"
+    log "You may need to manually delete the accelerator using the AWS Console or CLI"
+    log "ARN: $STORED_ACCELERATOR_ARN"
+    exit 1
 fi
 
-# Cleanup state files
-rm -f "$SCRIPT_OUTPUT_DIR/accelerator-arn"
-rm -f "$SCRIPT_OUTPUT_DIR/accelerator-dns-record"
+# Clean up stored accelerator ARN
+ga_cleanup_accelerator_arn
 
-log "Global Accelerator cleanup completed"
+log "Global Accelerator cleanup completed successfully"
+log "All resources have been removed and state files cleaned up"

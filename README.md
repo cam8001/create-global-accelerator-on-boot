@@ -21,29 +21,131 @@ This project provides automation scripts to:
 
 ## Files
 
-- `create-accelerator.sh` - Main script to create Global Accelerator and update DNS
-- `destroy-accelerator.sh` - Script to clean up Global Accelerator resources
+### Main Scripts
+- `create-accelerator.sh` - Create Global Accelerator endpoint (Global Accelerator functions only)
+- `destroy-accelerator.sh` - Clean up Global Accelerator resources (Global Accelerator functions only)
+- `update-dns.sh` - Manage Route 53 DNS records independently
 - `setup-iam-role.sh` - Script to create required IAM service-linked role
 - `setup-health-check.sh` - Script to configure nginx health check endpoint
+
+### Modular Components
+- `accelerator-utils.sh` - Shared utility functions (logging, retry logic)
+- `dns-manager.sh` - Route 53 DNS management functions
+- `accelerator-manager.sh` - Global Accelerator lifecycle management functions
+- `example-usage.sh` - Example script demonstrating modular usage
+
+### Modular Architecture
+
+The scripts have been refactored into reusable modules for better maintainability and code reuse:
+
+#### DNS Manager (`dns-manager.sh`)
+Handles all Route 53 DNS operations:
+- `dns_create_cname_record(hosted_zone_id, record_name, target_dns, [ttl])` - Create/update CNAME records
+- `dns_delete_cname_record(hosted_zone_id, record_name)` - Delete CNAME records
+- `dns_validate_parameters(hosted_zone_id, record_name)` - Validate DNS parameters
+- `dns_store_record_info(hosted_zone_id, record_name)` - Store DNS record info for cleanup
+- `dns_load_record_info()` - Load stored DNS record info (sets DNS_HOSTED_ZONE_ID and DNS_RECORD_NAME)
+- `dns_cleanup_record_info()` - Clean up stored DNS record information
+
+#### Global Accelerator Manager (`accelerator-manager.sh`)
+Handles all Global Accelerator operations:
+- `ga_get_instance_metadata()` - Retrieve EC2 instance metadata (sets INSTANCE_ID and PRIMARY_ENI_ID)
+- `ga_create_accelerator(accelerator_name, [ip_address_type])` - Create Global Accelerator
+- `ga_create_listener(accelerator_arn, [protocol], [port])` - Create TCP/UDP listeners
+- `ga_create_endpoint_group(listener_arn, endpoint_region, eni_id, [health_check_port], [health_check_path])` - Create endpoint groups
+- `ga_get_dns_name(accelerator_arn)` - Get accelerator DNS name
+- `ga_delete_accelerator(accelerator_arn)` - Disable and delete accelerator
+- `ga_create_complete_setup(accelerator_name, endpoint_region, [eni_id])` - Create full accelerator setup
+- `ga_store_accelerator_arn(accelerator_arn)` - Store accelerator ARN for cleanup
+- `ga_load_accelerator_arn()` - Load stored accelerator ARN (sets STORED_ACCELERATOR_ARN)
+- `ga_cleanup_accelerator_arn()` - Clean up stored accelerator ARN
+
+#### Configuration Variables
+
+**DNS Manager:**
+- `DNS_RECORD_TTL` - Default TTL for DNS records (default: 300)
+
+**Global Accelerator Manager:**
+- `GA_REGION` - Global Accelerator API region (default: us-west-2)
+- `GA_IP_ADDRESS_TYPE` - IP address type (default: IPV4)
+- `GA_PROTOCOL` - Listener protocol (default: TCP)
+- `GA_PORT` - Listener port (default: 22)
+- `GA_HEALTH_CHECK_PORT` - Health check port (default: 80)
+- `GA_HEALTH_CHECK_PATH` - Health check path (default: /health)
+
+#### Usage Examples
+
+```bash
+# Source the modules
+source ./dns-manager.sh
+source ./accelerator-manager.sh
+
+# Example 1: Create just a DNS record pointing to an existing service
+dns_create_cname_record "Z123456789" "app.example.com" "existing-service.amazonaws.com"
+
+# Example 2: Create just a Global Accelerator
+ACCELERATOR_ARN=$(ga_create_complete_setup "my-app" "us-east-1")
+
+# Example 3: Get accelerator DNS and update Route 53
+ACCELERATOR_DNS=$(ga_get_dns_name "$ACCELERATOR_ARN")
+dns_create_cname_record "Z123456789" "app.example.com" "$ACCELERATOR_DNS"
+
+# Example 4: Custom workflow with different TTL
+ga_get_instance_metadata
+ACCELERATOR_ARN=$(ga_create_accelerator "custom-accelerator")
+LISTENER_ARN=$(ga_create_listener "$ACCELERATOR_ARN" "TCP" "443")
+ga_create_endpoint_group "$LISTENER_ARN" "us-east-1" "$PRIMARY_ENI_ID"
+ACCELERATOR_DNS=$(ga_get_dns_name "$ACCELERATOR_ARN")
+dns_create_cname_record "Z123456789" "secure.example.com" "$ACCELERATOR_DNS" 600
+
+# Example 5: Load and cleanup existing resources
+if ga_load_accelerator_arn; then
+    ga_delete_accelerator "$STORED_ACCELERATOR_ARN"
+fi
+
+if dns_load_record_info; then
+    dns_delete_cname_record "$DNS_HOSTED_ZONE_ID" "$DNS_RECORD_NAME"
+fi
+```
+
+#### Benefits of Modular Design
+
+- **Reusability**: Use individual functions for custom workflows
+- **Maintainability**: Clear separation of concerns between DNS and Global Accelerator operations
+- **Testability**: Each module can be tested independently
+- **Flexibility**: Mix and match functions for different use cases
+- **Error Handling**: Consistent error handling and logging across all modules
+- **State Management**: Built-in state persistence for cleanup operations
 
 ## Configuration
 
 ### Required Parameters
 
+#### create-accelerator.sh
+| Parameter | Environment Variable | Description |
+|-----------|---------------------|-------------|
+| `--region` | `AWS_REGION` | AWS region where your EC2 instance is located (for endpoint group) |
+
+#### update-dns.sh (for DNS management)
 | Parameter | Environment Variable | Description |
 |-----------|---------------------|-------------|
 | `--hosted-zone-id` | `HOSTED_ZONE_ID` | Route 53 hosted zone ID |
-| `--region` | `AWS_REGION` | AWS region where your EC2 instance is located (for endpoint group) |
 | `--record-name` | `RECORD_NAME` | DNS record name (subdomain) |
 
 **Note**: Global Accelerator API calls are made to the global endpoint (us-west-2), but the `--region` parameter specifies where your EC2 instance endpoints are located.
 
 ### Optional Parameters
 
+#### create-accelerator.sh
 | Parameter | Environment Variable | Default | Description |
 |-----------|---------------------|---------|-------------|
 | `--retry-attempts` | `RETRY_ATTEMPTS` | `3` | Number of retry attempts for AWS API calls |
 | `--accelerator-name` | `ACCELERATOR_NAME` | `ec2-accelerator-{instance-id}` | Global Accelerator name |
+| `--ip-address-type` | `GA_IP_ADDRESS_TYPE` | `IPV4` | IP address type (IPV4 or DUAL_STACK) |
+| `--protocol` | `GA_PROTOCOL` | `TCP` | Listener protocol (TCP or UDP) |
+| `--port` | `GA_PORT` | `22` | Listener port |
+| `--health-check-port` | `GA_HEALTH_CHECK_PORT` | `80` | Health check port |
+| `--health-check-path` | `GA_HEALTH_CHECK_PATH` | `/health` | Health check path |
 
 ## Setup
 
@@ -93,18 +195,31 @@ sudo systemctl enable accelerator-shutdown.service
 #### Create Global Accelerator
 ```bash
 # Using environment variables
-export HOSTED_ZONE_ID="Z1234567890ABC"
 export AWS_REGION="us-east-1"
-export RECORD_NAME="mysubdomain.example.com"
 ./create-accelerator.sh
 
 # Using parameters
-./create-accelerator.sh --hosted-zone-id Z1234567890ABC --region us-east-1 --record-name mysubdomain.example.com
+./create-accelerator.sh --region us-east-1
+
+# With custom configuration
+./create-accelerator.sh --region us-east-1 --accelerator-name my-app --port 443 --protocol TCP
 ```
 
 #### Destroy Global Accelerator
 ```bash
 ./destroy-accelerator.sh
+
+# Skip confirmation prompt
+./destroy-accelerator.sh --force
+```
+
+#### Manage DNS Separately
+```bash
+# Create DNS record pointing to existing Global Accelerator
+./update-dns.sh --hosted-zone-id Z1234567890ABC --record-name myapp.example.com --target-dns a1234567890abcdef.awsglobalaccelerator.com
+
+# Delete DNS record
+./update-dns.sh --hosted-zone-id Z1234567890ABC --record-name myapp.example.com --delete
 ```
 
 ### Automatic Execution
@@ -119,18 +234,17 @@ The scripts are designed to run automatically:
 
 1. **ENI Discovery**: Identifies current instance's primary ENI
 2. **Global Accelerator Creation**: 
-   - Creates accelerator with TCP listener on port 22
+   - Creates accelerator with configurable listener (default: TCP port 22)
    - Configures endpoint group pointing to instance ENI
-   - Sets health check to port 80, path `/health`
-3. **DNS Update**: Creates/updates Route 53 CNAME record
-4. **State Persistence**: Stores accelerator ARN for cleanup
+   - Sets health check to configurable port/path (default: port 80, path `/health`)
+3. **State Persistence**: Stores accelerator ARN for cleanup
+4. **Output**: Provides Global Accelerator DNS name for manual DNS configuration
 
 ### destroy-accelerator.sh
 
 1. **State Recovery**: Reads stored accelerator ARN
-2. **DNS Cleanup**: Removes Route 53 CNAME record
-3. **Resource Deletion**: Deletes Global Accelerator
-4. **State Cleanup**: Removes stored configuration
+2. **Resource Deletion**: Disables and deletes Global Accelerator
+3. **State Cleanup**: Removes stored configuration files
 
 ### Error Handling
 
